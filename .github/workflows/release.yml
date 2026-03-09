@@ -20,8 +20,20 @@ jobs:
           chmod +x install
           sudo ./install
 
-      - name: Install dependencies
-        run: sudo apt-get install -y imagemagick webp
+      - name: Install ImageMagick 7
+        run: |
+          curl -sL https://imagemagick.org/archive/binaries/magick -o magick
+          chmod +x magick
+          sudo mv magick /usr/local/bin/
+
+      - name: Install cwebp
+        run: sudo apt-get install -y webp
+
+      - name: Verify tools
+        run: |
+          bb --version
+          magick --version
+          cwebp -version
 
       - name: Run tests
         run: bash test/run.sh
