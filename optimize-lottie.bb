@@ -341,20 +341,19 @@
   (println "  bb optimize-lottie.bb -i anim.json -o small.json -q 75 -s 512")
   (println "  bb optimize-lottie.bb -i anim.json --fps 30"))
 
-(let [opts (cli/parse-opts *command-line-args* {:spec cli-spec})]
-  (cond
-    (:help opts)
-    (print-help)
+(if (some #(contains? #{"-h" "--help"} %) *command-line-args*)
+  (print-help)
+  (let [opts (cli/parse-opts *command-line-args* {:spec cli-spec})]
+    (cond
+      (not (:input opts))
+      (do (println "Error: --input is required")
+          (println)
+          (print-help)
+          (System/exit 1))
 
-    (not (:input opts))
-    (do (println "Error: --input is required")
-        (println)
-        (print-help)
-        (System/exit 1))
+      (not (fs/exists? (:input opts)))
+      (do (println (str "Error: file not found: " (:input opts)))
+          (System/exit 1))
 
-    (not (fs/exists? (:input opts)))
-    (do (println (str "Error: file not found: " (:input opts)))
-        (System/exit 1))
-
-    :else
-    (optimize! opts)))
+      :else
+      (optimize! opts))))
