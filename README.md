@@ -4,12 +4,12 @@ Babashka (Clojure) CLI tool that optimizes Lottie JSON animation files by compre
 
 ## Requirements
 
-- [Babashka](https://babashka.org/) (bb)
+- [Babashka](https://github.com/babashka/babashka) (bb)
 - [ImageMagick](https://imagemagick.org/) (magick)
 - [libwebp](https://developers.google.com/speed/webp/) (cwebp)
 
 ```bash
-brew install babashka imagemagick webp
+brew install borkdude/brew/babashka imagemagick webp
 ```
 
 ## Usage
