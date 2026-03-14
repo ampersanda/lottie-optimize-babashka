@@ -38,7 +38,7 @@ get_latest_version() {
 
 get_installed_version() {
   if [[ -x "${INSTALL_DIR}/${BIN_NAME}" ]]; then
-    "${INSTALL_DIR}/${BIN_NAME}" --version 2>/dev/null | awk '{print $NF}'
+    "${INSTALL_DIR}/${BIN_NAME}" --version 2>/dev/null | awk '{print $NF}' || true
   fi
 }
 
