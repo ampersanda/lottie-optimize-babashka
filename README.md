@@ -1,5 +1,7 @@
 # lottie-optimize-babashka
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Babashka (Clojure) CLI tool that optimizes Lottie JSON animation files by compressing embedded images, truncating float precision, stripping editor metadata, and minifying output.
 
 ## Install
