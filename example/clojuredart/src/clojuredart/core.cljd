@@ -1,0 +1,18 @@
+(ns clojuredart.core
+  (:require ["package:flutter/material.dart" :as m]
+            ["package:lottie/lottie.dart" :as lottie]
+            [cljd.flutter :as f]))
+
+(defn main []
+  (f/run
+    (m/MaterialApp
+      .home
+      (m/Scaffold
+        .extendBodyBehindAppBar true
+        .body
+        (m/Center
+          .child (lottie/Lottie.asset
+                   "assets/confetti.json"
+                   .width double/infinity
+                   .fit m.BoxFit/fitWidth
+                   .repeat true))))))

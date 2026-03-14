@@ -115,6 +115,15 @@ flutter pub get
 flutter run
 ```
 
+### ClojureDart
+
+Uses [ClojureDart](https://github.com/Tensegritics/ClojureDart) with [lottie](https://pub.dev/packages/lottie).
+
+```bash
+cd example/clojuredart
+clj -M:cljd flutter
+```
+
 ## How it works
 
 1. **Image compression** - Downscales embedded PNG images to fit the animation canvas, converts to WebP (or keeps PNG if smaller), picks the smallest result
