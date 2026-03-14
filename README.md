@@ -75,7 +75,10 @@ bb optimize-lottie.bb -i animation.json --fps 30
 
 ## Examples
 
-Full-screen looping confetti animation examples located in `example/`. All examples symlink to `animations/confetti.json` so optimized files are reflected immediately.
+Full-screen looping confetti animation examples located in `example/`.
+
+> [!WARNING]
+> All examples symlink to `animations/confetti.json`. Changes to that file are reflected immediately across all example projects.
 
 ### iOS
 
