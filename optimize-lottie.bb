@@ -400,7 +400,7 @@
   (println "  bb optimize-lottie.bb -i anim.json -o small.json -q 75 -s 512")
   (println "  bb optimize-lottie.bb -i anim.json --fps 30"))
 
-(def version "1.2.0")
+(def version "1.3.0")
 
 (cond
   (some #(contains? #{"-h" "--help"} %) *command-line-args*)
