@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.4.0] - 2026-03-14
+
+### Added
+
+- Stdin/stdout support for piping (`cat anim.json | optimize-lottie > small.json`)
+- Batch processing for multiple files (`optimize-lottie *.json`)
+- Per-step summary stats after optimization (image, precision, metadata savings)
+- Meaningful exit codes for scripting (0-6)
+
+### Changed
+
+- Split monolithic script into multi-file structure under `src/`
+- CI now uses `bb uberscript` to bundle multi-file project for release
+
+### Fixed
+
+- CI `apt-get update` before installing webp package
+
 ## [1.3.1] - 2026-03-14
 
 ### Fixed

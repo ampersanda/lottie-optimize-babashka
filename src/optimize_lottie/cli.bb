@@ -43,7 +43,7 @@
    :version        {:desc  "Show version"
                     :alias :v}})
 
-(def version "1.3.1")
+(def version "1.4.0")
 
 (defn print-help []
   (println "Usage: optimize-lottie -i <file.json> [options]")
