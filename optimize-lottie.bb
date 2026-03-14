@@ -255,14 +255,9 @@
 (defn stdout? [output]
   (= "-" output))
 
-(defn optimize! [{:keys [input output max-image-size webp-quality precision fps lossless]}]
-  ;; Verify dependencies
-  (when-not (which "magick")
-    (log "Error: ImageMagick (magick) not found. Install via: brew install imagemagick")
-    (System/exit 4))
-  (when-not (which "cwebp")
-    (log "Warning: cwebp not found. WebP conversion disabled. Install via: brew install webp"))
-
+(defn optimize!
+  "Optimize a single file. Returns {:orig-size n :final-size n :output-path s} or nil on error."
+  [{:keys [input output max-image-size webp-quality precision fps lossless]}]
   (let [pipe-mode   (stdin? input)
         raw-input   (try
                       (if pipe-mode
@@ -270,12 +265,14 @@
                         (slurp input))
                       (catch Exception e
                         (log (str "Error: cannot read input: " (.getMessage e)))
-                        (System/exit 2)))
+                        nil))
+        _           (when-not raw-input (System/exit 2))
         data        (try
                       (json/parse-string raw-input true)
                       (catch Exception e
                         (log (str "Error: invalid JSON: " (.getMessage e)))
-                        (System/exit 3)))
+                        nil))
+        _           (when-not data (System/exit 3))
         _           (when-not (and (:w data) (:h data) (:layers data))
                       (log "Error: input does not appear to be a Lottie file (missing w, h, or layers)")
                       (System/exit 3))
@@ -386,20 +383,25 @@
                     (log (str "Error: cannot write output file: " (.getMessage e)))
                     (System/exit 6))))
 
-              (log)
-              (log "Summary:")
-              (log (str "  Input:    " (format-bytes orig-size)))
-              (when img-saved
-                (log (str "  Images:  -" (format-bytes (- orig-size after-images))
-                          " (" img-count " optimized)")))
-              (log (str "  Floats:  -" (format-bytes precision-saved)))
-              (log (str "  Meta:    -" (format-bytes metadata-saved)))
-              (when fps
-                (log (str "  FPS:     -" (format-bytes fps-saved))))
-              (log (str "  Output:   " (format-bytes final-size)
-                        " (" (pct total-saved orig-size) "% smaller)"))
-              (log)
-              (log (str "Wrote " (if (stdout? output-path) "<stdout>" output-path))))))))))
+              {:orig-size   orig-size
+               :final-size  final-size
+               :total-saved total-saved
+               :output-path output-path})))))))
+
+(defn print-summary [{:keys [orig-size final-size total-saved output-path]}]
+  (log)
+  (log (str (format-bytes orig-size) " -> " (format-bytes final-size)
+            " (" (pct total-saved orig-size) "% smaller)"
+            " -> " (if (stdout? output-path) "<stdout>" output-path))))
+
+(defn print-batch-summary [results]
+  (let [total-orig  (reduce + (map :orig-size results))
+        total-final (reduce + (map :final-size results))
+        total-saved (- total-orig total-final)]
+    (log)
+    (log (str "Batch: " (count results) " files, "
+              (format-bytes total-orig) " -> " (format-bytes total-final)
+              " (" (pct total-saved total-orig) "% smaller)"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Exit codes
@@ -418,8 +420,7 @@
 
 (def cli-spec
   {:input          {:desc    "Input Lottie JSON file (- for stdin)"
-                    :alias   :i
-                    :require true}
+                    :alias   :i}
    :output         {:desc  "Output file path (default: <input>.optimized.json, - for stdout)"
                     :alias :o}
    :max-image-size {:desc   "Max image dimension in px (default: canvas size)"
@@ -447,6 +448,7 @@
 
 (defn print-help []
   (println "Usage: optimize-lottie -i <file.json> [options]")
+  (println "       optimize-lottie file1.json file2.json [options]")
   (println "       cat anim.json | optimize-lottie > output.json")
   (println)
   (println "Optimize Lottie animation files by compressing embedded images,")
@@ -470,6 +472,7 @@
   (println "  optimize-lottie -i anim.json")
   (println "  optimize-lottie -i anim.json -o small.json -q 75 -s 512")
   (println "  optimize-lottie -i anim.json --fps 30")
+  (println "  optimize-lottie *.json")
   (println "  cat anim.json | optimize-lottie > small.json")
   (println "  optimize-lottie -i - -o optimized.json < anim.json"))
 
@@ -480,6 +483,13 @@
     (pos? (.available System/in))
     (catch Exception _ false)))
 
+(defn check-deps! []
+  (when-not (which "magick")
+    (log "Error: ImageMagick (magick) not found. Install via: brew install imagemagick")
+    (System/exit 4))
+  (when-not (which "cwebp")
+    (log "Warning: cwebp not found. WebP conversion disabled. Install via: brew install webp")))
+
 (cond
   (some #(contains? #{"-h" "--help"} %) *command-line-args*)
   (print-help)
@@ -488,22 +498,60 @@
   (println (str "optimize-lottie " version))
 
   :else
-  (let [opts (cli/parse-opts *command-line-args* {:spec (update cli-spec :input dissoc :require)})]
+  (let [{:keys [opts args]} (cli/parse-args *command-line-args* {:spec cli-spec})
+        ;; Collect input files: -i flag + positional args
+        inputs (cond-> (vec args)
+                 (:input opts) (conj (:input opts)))
+        has-stdin (stdin-ready?)]
+
     (cond
-      ;; Explicit input given
-      (some? (:input opts))
-      (if (and (not= "-" (:input opts)) (not (fs/exists? (:input opts))))
-        (do (binding [*out* *err*] (println (str "Error: file not found: " (:input opts))))
-            (System/exit 2))
-        (optimize! opts))
+      ;; -o with multiple files is ambiguous
+      (and (:output opts) (> (count inputs) 1))
+      (do (log "Error: -o cannot be used with multiple input files")
+          (System/exit 1))
+
+      ;; Multiple files: batch mode
+      (> (count inputs) 1)
+      (do
+        (check-deps!)
+        (let [total   (count inputs)
+              errors  (atom 0)
+              results (atom [])]
+          (doseq [[idx input] (map-indexed vector inputs)]
+            (log (str "[" (inc idx) "/" total "] " input))
+            (if (fs/exists? input)
+              (let [result (optimize! (assoc opts :input input))]
+                (print-summary result)
+                (swap! results conj result))
+              (do (log (str "Error: file not found: " input))
+                  (swap! errors inc)))
+            (when (< (inc idx) total) (log)))
+          (print-batch-summary @results)
+          (when (pos? @errors)
+            (log (str @errors " file(s) skipped due to errors"))
+            (System/exit 2))))
+
+      ;; Single file via -i or positional arg
+      (= (count inputs) 1)
+      (let [input (first inputs)]
+        (if (and (not= "-" input) (not (fs/exists? input)))
+          (do (log (str "Error: file not found: " input))
+              (System/exit 2))
+          (do
+            (check-deps!)
+            (let [result (optimize! (assoc opts :input input))]
+              (print-summary result)))))
 
       ;; No -i flag but stdin has data
-      (stdin-ready?)
-      (optimize! (assoc opts :input "-"))
+      has-stdin
+      (do
+        (check-deps!)
+        (let [result (optimize! (assoc opts :input "-"))]
+          (print-summary result)))
 
       ;; No input at all
       :else
-      (do (binding [*out* *err*] (println "Error: --input is required"))
+      (do (log "Error: --input is required")
           (println)
           (print-help)
           (System/exit 1)))))
