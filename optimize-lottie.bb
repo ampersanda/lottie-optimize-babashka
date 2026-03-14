@@ -108,17 +108,24 @@
                 [webp-bytes "image/webp"]
                 [png-bytes "image/png"])
               new-uri (str "data:" best-mime ";base64," (encode-b64 best-bytes))]
-          ;; Keep original w/h so layer transforms stay correct —
-          ;; the renderer scales the smaller image to the declared size
+          ;; Update w/h to actual resized dimensions — Android's
+          ;; lottie renderer uses pixel dims, not declared size
           [(-> asset
-               (assoc :p new-uri :u "" :e 1))
+               (assoc :p new-uri :u "" :e 1 :w new-w :h new-h))
            orig-size
-           (count best-bytes)])
+           (count best-bytes)
+           (when (and (:w asset) (:h asset)
+                      (pos? (:w asset)) (pos? (:h asset))
+                      (or (not= new-w (:w asset))
+                          (not= new-h (:h asset))))
+             {:id (:id asset)
+              :sx (/ (double new-w) (double (:w asset)))
+              :sy (/ (double new-h) (double (:h asset)))})])
         (finally
           (.delete in-file)
           (.delete resized)
           (.delete webp-file))))
-    [asset 0 0]))
+    [asset 0 0 nil]))
 
 ;; ---------------------------------------------------------------------------
 ;; JSON / keyframe optimization
@@ -159,6 +166,39 @@
     (vector? obj) (mapv remove-editor-metadata obj)
     (list? obj)   (map remove-editor-metadata obj)
     :else         obj))
+
+(defn scale-2d-prop
+  "Scale a 2D vector property (static or animated) by sx/sy ratios."
+  [prop sx sy]
+  (if (= 1 (:a prop))
+    (update prop :k
+      (fn [kfs]
+        (mapv (fn [kf]
+                (cond-> kf
+                  (:s kf) (update :s (fn [[x y & rest]] (into [(* x sx) (* y sy)] rest)))
+                  (:e kf) (update :e (fn [[x y & rest]] (into [(* x sx) (* y sy)] rest)))))
+              kfs)))
+    (update prop :k (fn [[x y & rest]] (into [(* x sx) (* y sy)] rest)))))
+
+(defn adjust-image-layers
+  "Adjust anchor points and scale of image layers whose assets were resized."
+  [layers scale-map]
+  (mapv (fn [layer]
+          (let [layer (if (and (= 2 (:ty layer))
+                               (contains? scale-map (:refId layer)))
+                        (let [{:keys [sx sy]} (get scale-map (:refId layer))
+                              inv-sx (/ 1.0 sx)
+                              inv-sy (/ 1.0 sy)]
+                          (cond-> layer
+                            (get-in layer [:ks :a])
+                            (update-in [:ks :a] scale-2d-prop sx sy)
+                            (get-in layer [:ks :s])
+                            (update-in [:ks :s] scale-2d-prop inv-sx inv-sy)))
+                        layer)]
+            (if (:layers layer)
+              (update layer :layers adjust-image-layers scale-map)
+              layer)))
+        layers))
 
 (defn reduce-framerate [data target-fps]
   (let [orig-fps (:fr data 60)]
@@ -237,7 +277,23 @@
           total-orig (reduce + (map second results))
           total-new  (reduce + (map #(nth % 2) results))
           img-count  (count (filter #(pos? (second %)) results))
-          data       (assoc data :assets new-assets)]
+          ;; Collect scale ratios for resized image assets
+          scale-map  (into {}
+                       (for [info (keep #(nth % 3) results)
+                             :when (:id info)]
+                         [(:id info) info]))
+          data       (assoc data :assets new-assets)
+          ;; Adjust anchor points and scale for resized assets
+          data       (if (seq scale-map)
+                       (-> data
+                           (update :layers adjust-image-layers scale-map)
+                           (update :assets (fn [assets]
+                                            (mapv (fn [a]
+                                                    (if (:layers a)
+                                                      (update a :layers adjust-image-layers scale-map)
+                                                      a))
+                                                  assets))))
+                       data)]
 
       (when (pos? img-count)
         (let [saved (- total-orig total-new)]
