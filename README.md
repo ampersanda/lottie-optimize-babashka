@@ -100,6 +100,16 @@ adb shell am start -n com.example.lottieexample/.MainActivity
 
 Or open the `example/android` folder in Android Studio.
 
+### Flutter
+
+Uses [lottie](https://pub.dev/packages/lottie) with [Very Good Analysis](https://pub.dev/packages/very_good_analysis). Tested on iOS, Android, and macOS.
+
+```bash
+cd example/flutter
+flutter pub get
+flutter run
+```
+
 ## How it works
 
 1. **Image compression** - Downscales embedded PNG images to fit the animation canvas, converts to WebP (or keeps PNG if smaller), picks the smallest result
