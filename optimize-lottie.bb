@@ -249,11 +249,18 @@
   ;; Verify dependencies
   (when-not (which "magick")
     (println "Error: ImageMagick (magick) not found. Install via: brew install imagemagick")
-    (System/exit 1))
+    (System/exit 4))
   (when-not (which "cwebp")
     (println "Warning: cwebp not found. WebP conversion disabled. Install via: brew install webp"))
 
-  (let [data         (json/parse-string (slurp input) true)
+  (let [data         (try
+                       (json/parse-string (slurp input) true)
+                       (catch Exception e
+                         (println (str "Error: invalid JSON: " (.getMessage e)))
+                         (System/exit 3)))
+        _            (when-not (and (:w data) (:h data) (:layers data))
+                       (println "Error: input does not appear to be a Lottie file (missing w, h, or layers)")
+                       (System/exit 3))
         orig-json    (json/generate-string data)
         orig-size    (count orig-json)
         canvas-max   (max (:w data 512) (:h data 512))
@@ -334,13 +341,28 @@
               final-size (count final-json)
               saved      (- orig-size final-size)]
 
-          (spit output-path final-json)
+          (try
+            (spit output-path final-json)
+            (catch Exception e
+              (println (str "Error: cannot write output file: " (.getMessage e)))
+              (System/exit 6)))
 
           (println)
           (println (str "Output:    " output-path))
           (println (str "Final:     " (format-bytes final-size)))
           (println (str "Saved:     " (format-bytes saved)
                         " (" (pct saved orig-size) "%)")))))))
+
+;; ---------------------------------------------------------------------------
+;; Exit codes
+;; ---------------------------------------------------------------------------
+;;   0  Success
+;;   1  Missing required argument
+;;   2  Input file not found
+;;   3  Invalid input (not valid JSON or not a Lottie file)
+;;   4  Missing required dependency (magick)
+;;   5  Image optimization failed
+;;   6  Write error (cannot write output file)
 
 ;; ---------------------------------------------------------------------------
 ;; CLI
@@ -410,7 +432,7 @@
   (println (str "optimize-lottie " version))
 
   :else
-  (let [opts (cli/parse-opts *command-line-args* {:spec cli-spec})]
+  (let [opts (cli/parse-opts *command-line-args* {:spec (update cli-spec :input dissoc :require)})]
     (cond
       (not (:input opts))
       (do (println "Error: --input is required")
@@ -420,7 +442,7 @@
 
       (not (fs/exists? (:input opts)))
       (do (println (str "Error: file not found: " (:input opts)))
-          (System/exit 1))
+          (System/exit 2))
 
       :else
       (optimize! opts))))
