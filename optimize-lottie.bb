@@ -108,7 +108,7 @@
                 [webp-bytes "image/webp"]
                 [png-bytes "image/png"])
               new-uri (str "data:" best-mime ";base64," (encode-b64 best-bytes))]
-          ;; Update w/h to actual resized dimensions — Android's
+          ;; Update w/h to actual resized dimensions -- Android's
           ;; lottie renderer uses pixel dims, not declared size
           [(-> asset
                (assoc :p new-uri :u "" :e 1 :w new-w :h new-h))
@@ -302,56 +302,80 @@
                                                   assets))))
                        data)]
 
-      (when (pos? img-count)
-        (let [saved (- total-orig total-new)]
+      (let [img-saved    (when (pos? img-count) (- total-orig total-new))
+            after-images (count (json/generate-string data))]
+
+        (when img-saved
           (println (str "  " img-count " images: "
                         (format-bytes total-orig) " -> "
                         (format-bytes total-new)
-                        " (saved " (format-bytes saved) ", "
-                        (pct saved total-orig) "%)"))))
+                        " (saved " (format-bytes img-saved) ", "
+                        (pct img-saved total-orig) "%)")))
 
-      ;; 2. Truncate precision (preserve image data URIs)
-      (println (str "Truncating float precision (max " prec " decimals)..."))
-      (let [img-uris (into {}
-                           (for [a (:assets data)
-                                 :when (and (string? (:p a))
-                                            (str/starts-with? (:p a) "data:"))]
-                             [(:id a) (:p a)]))
-            data     (truncate-precision data prec)
-            data     (update data :assets
-                            (fn [assets]
-                              (mapv (fn [a]
-                                      (if-let [uri (get img-uris (:id a))]
-                                        (assoc a :p uri)
-                                        a))
-                                    assets)))]
+        ;; 2. Truncate precision (preserve image data URIs)
+        (println (str "Truncating float precision (max " prec " decimals)..."))
+        (let [img-uris (into {}
+                             (for [a (:assets data)
+                                   :when (and (string? (:p a))
+                                              (str/starts-with? (:p a) "data:"))]
+                               [(:id a) (:p a)]))
+              data     (truncate-precision data prec)
+              data     (update data :assets
+                              (fn [assets]
+                                (mapv (fn [a]
+                                        (if-let [uri (get img-uris (:id a))]
+                                          (assoc a :p uri)
+                                          a))
+                                      assets)))
+              after-precision (count (json/generate-string data))
+              precision-saved (- after-images after-precision)]
 
-        ;; 3. Remove editor metadata
-        (println "Removing editor metadata...")
-        (let [data (remove-editor-metadata data)
+          (println (str "  saved " (format-bytes precision-saved)))
 
-              ;; 4. Optional framerate reduction
-              data (if fps
-                     (do (println (str "Reducing framerate to " fps "fps..."))
-                         (reduce-framerate data fps))
-                     data)
+          ;; 3. Remove editor metadata
+          (println "Removing editor metadata...")
+          (let [data (remove-editor-metadata data)
+                after-metadata (count (json/generate-string data))
+                metadata-saved (- after-precision after-metadata)]
 
-              ;; 5. Minify
-              final-json (json/generate-string data)
-              final-size (count final-json)
-              saved      (- orig-size final-size)]
+            (println (str "  saved " (format-bytes metadata-saved)))
 
-          (try
-            (spit output-path final-json)
-            (catch Exception e
-              (println (str "Error: cannot write output file: " (.getMessage e)))
-              (System/exit 6)))
+            ;; 4. Optional framerate reduction
+            (let [[data fps-saved]
+                  (if fps
+                    (let [d (reduce-framerate data fps)
+                          after-fps (count (json/generate-string d))
+                          s (- after-metadata after-fps)]
+                      (println (str "Reducing framerate to " fps "fps..."))
+                      (println (str "  saved " (format-bytes s)))
+                      [d s])
+                    [data 0])
 
-          (println)
-          (println (str "Output:    " output-path))
-          (println (str "Final:     " (format-bytes final-size)))
-          (println (str "Saved:     " (format-bytes saved)
-                        " (" (pct saved orig-size) "%)")))))))
+                  ;; 5. Minify
+                  final-json  (json/generate-string data)
+                  final-size  (count final-json)
+                  total-saved (- orig-size final-size)]
+
+              (try
+                (spit output-path final-json)
+                (catch Exception e
+                  (println (str "Error: cannot write output file: " (.getMessage e)))
+                  (System/exit 6)))
+
+              (println)
+              (println "Summary:")
+              (println (str "  Input:    " (format-bytes orig-size)))
+              (when img-saved
+                (println (str "  Images:  -" (format-bytes (- orig-size after-images))
+                              " (" img-count " optimized)")))
+              (println (str "  Floats:  -" (format-bytes precision-saved)))
+              (println (str "  Meta:    -" (format-bytes metadata-saved)))
+              (when fps
+                (println (str "  FPS:     -" (format-bytes fps-saved))))
+              (println (str "  Output:   " (format-bytes final-size)
+                            " (" (pct total-saved orig-size) "% smaller)"))
+              (println)
+              (println (str "Wrote " output-path)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Exit codes
