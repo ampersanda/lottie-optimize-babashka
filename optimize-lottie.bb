@@ -371,7 +371,9 @@
                     :coerce  :boolean
                     :default false}
    :help           {:desc  "Show help"
-                    :alias :h}})
+                    :alias :h}
+   :version        {:desc  "Show version"
+                    :alias :v}})
 
 (defn print-help []
   (println "Usage: optimize-lottie.bb -i <file.json> [options]")
@@ -391,14 +393,23 @@
   (println "  -f, --fps N              Target framerate (default: keep original)")
   (println "  -l, --lossless           Lossless WebP (no quality loss, larger files)")
   (println "  -h, --help               Show this help")
+  (println "  -v, --version            Show version")
   (println)
   (println "Examples:")
   (println "  bb optimize-lottie.bb -i anim.json")
   (println "  bb optimize-lottie.bb -i anim.json -o small.json -q 75 -s 512")
   (println "  bb optimize-lottie.bb -i anim.json --fps 30"))
 
-(if (some #(contains? #{"-h" "--help"} %) *command-line-args*)
+(def version "1.2.0")
+
+(cond
+  (some #(contains? #{"-h" "--help"} %) *command-line-args*)
   (print-help)
+
+  (some #(contains? #{"-v" "--version"} %) *command-line-args*)
+  (println (str "optimize-lottie " version))
+
+  :else
   (let [opts (cli/parse-opts *command-line-args* {:spec cli-spec})]
     (cond
       (not (:input opts))
