@@ -245,40 +245,61 @@
     (Math/round (* 100.0 (/ (double part) (double whole))))
     0))
 
+(defn log [& args]
+  (binding [*out* *err*]
+    (apply println args)))
+
+(defn stdin? [input]
+  (or (nil? input) (= "-" input)))
+
+(defn stdout? [output]
+  (= "-" output))
+
 (defn optimize! [{:keys [input output max-image-size webp-quality precision fps lossless]}]
   ;; Verify dependencies
   (when-not (which "magick")
-    (println "Error: ImageMagick (magick) not found. Install via: brew install imagemagick")
+    (log "Error: ImageMagick (magick) not found. Install via: brew install imagemagick")
     (System/exit 4))
   (when-not (which "cwebp")
-    (println "Warning: cwebp not found. WebP conversion disabled. Install via: brew install webp"))
+    (log "Warning: cwebp not found. WebP conversion disabled. Install via: brew install webp"))
 
-  (let [data         (try
-                       (json/parse-string (slurp input) true)
-                       (catch Exception e
-                         (println (str "Error: invalid JSON: " (.getMessage e)))
-                         (System/exit 3)))
-        _            (when-not (and (:w data) (:h data) (:layers data))
-                       (println "Error: input does not appear to be a Lottie file (missing w, h, or layers)")
-                       (System/exit 3))
-        orig-json    (json/generate-string data)
-        orig-size    (count orig-json)
-        canvas-max   (max (:w data 512) (:h data 512))
-        max-dim      (or max-image-size canvas-max)
-        webp-q       (if lossless :lossless (or webp-quality 80))
-        prec         (or precision 3)
-        output-path  (or output
-                         (str (str/replace input #"\.json$" "")
-                              ".optimized.json"))]
+  (let [pipe-mode   (stdin? input)
+        raw-input   (try
+                      (if pipe-mode
+                        (slurp *in*)
+                        (slurp input))
+                      (catch Exception e
+                        (log (str "Error: cannot read input: " (.getMessage e)))
+                        (System/exit 2)))
+        data        (try
+                      (json/parse-string raw-input true)
+                      (catch Exception e
+                        (log (str "Error: invalid JSON: " (.getMessage e)))
+                        (System/exit 3)))
+        _           (when-not (and (:w data) (:h data) (:layers data))
+                      (log "Error: input does not appear to be a Lottie file (missing w, h, or layers)")
+                      (System/exit 3))
+        orig-json   (json/generate-string data)
+        orig-size   (count orig-json)
+        canvas-max  (max (:w data 512) (:h data 512))
+        max-dim     (or max-image-size canvas-max)
+        webp-q      (if lossless :lossless (or webp-quality 80))
+        prec        (or precision 3)
+        output-path (cond
+                      (some? output)  output
+                      pipe-mode       "-"
+                      :else           (str (str/replace input #"\.json$" "")
+                                          ".optimized.json"))
+        input-label (if pipe-mode "<stdin>" input)]
 
-    (println (str "Input:     " input))
-    (println (str "Size:      " (format-bytes orig-size)))
-    (println (str "Canvas:    " (:w data) "x" (:h data) " @ " (:fr data) "fps"))
-    (println (str "Frames:    " (:ip data) "-" (:op data)))
-    (println)
+    (log (str "Input:     " input-label))
+    (log (str "Size:      " (format-bytes orig-size)))
+    (log (str "Canvas:    " (:w data) "x" (:h data) " @ " (:fr data) "fps"))
+    (log (str "Frames:    " (:ip data) "-" (:op data)))
+    (log)
 
     ;; 1. Optimize images
-    (println "Optimizing images...")
+    (log "Optimizing images...")
     (let [results    (mapv #(optimize-image-asset % max-dim webp-q) (:assets data))
           new-assets (mapv first results)
           total-orig (reduce + (map second results))
@@ -306,14 +327,14 @@
             after-images (count (json/generate-string data))]
 
         (when img-saved
-          (println (str "  " img-count " images: "
-                        (format-bytes total-orig) " -> "
-                        (format-bytes total-new)
-                        " (saved " (format-bytes img-saved) ", "
-                        (pct img-saved total-orig) "%)")))
+          (log (str "  " img-count " images: "
+                    (format-bytes total-orig) " -> "
+                    (format-bytes total-new)
+                    " (saved " (format-bytes img-saved) ", "
+                    (pct img-saved total-orig) "%)")))
 
         ;; 2. Truncate precision (preserve image data URIs)
-        (println (str "Truncating float precision (max " prec " decimals)..."))
+        (log (str "Truncating float precision (max " prec " decimals)..."))
         (let [img-uris (into {}
                              (for [a (:assets data)
                                    :when (and (string? (:p a))
@@ -330,15 +351,15 @@
               after-precision (count (json/generate-string data))
               precision-saved (- after-images after-precision)]
 
-          (println (str "  saved " (format-bytes precision-saved)))
+          (log (str "  saved " (format-bytes precision-saved)))
 
           ;; 3. Remove editor metadata
-          (println "Removing editor metadata...")
+          (log "Removing editor metadata...")
           (let [data (remove-editor-metadata data)
                 after-metadata (count (json/generate-string data))
                 metadata-saved (- after-precision after-metadata)]
 
-            (println (str "  saved " (format-bytes metadata-saved)))
+            (log (str "  saved " (format-bytes metadata-saved)))
 
             ;; 4. Optional framerate reduction
             (let [[data fps-saved]
@@ -346,8 +367,8 @@
                     (let [d (reduce-framerate data fps)
                           after-fps (count (json/generate-string d))
                           s (- after-metadata after-fps)]
-                      (println (str "Reducing framerate to " fps "fps..."))
-                      (println (str "  saved " (format-bytes s)))
+                      (log (str "Reducing framerate to " fps "fps..."))
+                      (log (str "  saved " (format-bytes s)))
                       [d s])
                     [data 0])
 
@@ -356,26 +377,29 @@
                   final-size  (count final-json)
                   total-saved (- orig-size final-size)]
 
-              (try
-                (spit output-path final-json)
-                (catch Exception e
-                  (println (str "Error: cannot write output file: " (.getMessage e)))
-                  (System/exit 6)))
+              ;; Write output
+              (if (stdout? output-path)
+                (print final-json)
+                (try
+                  (spit output-path final-json)
+                  (catch Exception e
+                    (log (str "Error: cannot write output file: " (.getMessage e)))
+                    (System/exit 6))))
 
-              (println)
-              (println "Summary:")
-              (println (str "  Input:    " (format-bytes orig-size)))
+              (log)
+              (log "Summary:")
+              (log (str "  Input:    " (format-bytes orig-size)))
               (when img-saved
-                (println (str "  Images:  -" (format-bytes (- orig-size after-images))
-                              " (" img-count " optimized)")))
-              (println (str "  Floats:  -" (format-bytes precision-saved)))
-              (println (str "  Meta:    -" (format-bytes metadata-saved)))
+                (log (str "  Images:  -" (format-bytes (- orig-size after-images))
+                          " (" img-count " optimized)")))
+              (log (str "  Floats:  -" (format-bytes precision-saved)))
+              (log (str "  Meta:    -" (format-bytes metadata-saved)))
               (when fps
-                (println (str "  FPS:     -" (format-bytes fps-saved))))
-              (println (str "  Output:   " (format-bytes final-size)
-                            " (" (pct total-saved orig-size) "% smaller)"))
-              (println)
-              (println (str "Wrote " output-path)))))))))
+                (log (str "  FPS:     -" (format-bytes fps-saved))))
+              (log (str "  Output:   " (format-bytes final-size)
+                        " (" (pct total-saved orig-size) "% smaller)"))
+              (log)
+              (log (str "Wrote " (if (stdout? output-path) "<stdout>" output-path))))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Exit codes
@@ -393,10 +417,10 @@
 ;; ---------------------------------------------------------------------------
 
 (def cli-spec
-  {:input          {:desc    "Input Lottie JSON file"
+  {:input          {:desc    "Input Lottie JSON file (- for stdin)"
                     :alias   :i
                     :require true}
-   :output         {:desc  "Output file path (default: <input>.optimized.json)"
+   :output         {:desc  "Output file path (default: <input>.optimized.json, - for stdout)"
                     :alias :o}
    :max-image-size {:desc   "Max image dimension in px (default: canvas size)"
                     :alias  :s
@@ -422,7 +446,8 @@
                     :alias :v}})
 
 (defn print-help []
-  (println "Usage: optimize-lottie.bb -i <file.json> [options]")
+  (println "Usage: optimize-lottie -i <file.json> [options]")
+  (println "       cat anim.json | optimize-lottie > output.json")
   (println)
   (println "Optimize Lottie animation files by compressing embedded images,")
   (println "truncating float precision, removing editor metadata, and minifying JSON.")
@@ -431,8 +456,8 @@
   (println "Install:  brew install imagemagick webp")
   (println)
   (println "Options:")
-  (println "  -i, --input FILE          Input Lottie JSON file (required)")
-  (println "  -o, --output FILE         Output path (default: <input>.optimized.json)")
+  (println "  -i, --input FILE          Input Lottie JSON file (- for stdin)")
+  (println "  -o, --output FILE         Output path (- for stdout)")
   (println "  -s, --max-image-size PX   Max image dimension (default: canvas size)")
   (println "  -q, --webp-quality 0-100  WebP quality (default: 80)")
   (println "  -p, --precision N         Float decimal places (default: 3)")
@@ -442,11 +467,18 @@
   (println "  -v, --version            Show version")
   (println)
   (println "Examples:")
-  (println "  bb optimize-lottie.bb -i anim.json")
-  (println "  bb optimize-lottie.bb -i anim.json -o small.json -q 75 -s 512")
-  (println "  bb optimize-lottie.bb -i anim.json --fps 30"))
+  (println "  optimize-lottie -i anim.json")
+  (println "  optimize-lottie -i anim.json -o small.json -q 75 -s 512")
+  (println "  optimize-lottie -i anim.json --fps 30")
+  (println "  cat anim.json | optimize-lottie > small.json")
+  (println "  optimize-lottie -i - -o optimized.json < anim.json"))
 
 (def version "1.3.1")
+
+(defn stdin-ready? []
+  (try
+    (pos? (.available System/in))
+    (catch Exception _ false)))
 
 (cond
   (some #(contains? #{"-h" "--help"} %) *command-line-args*)
@@ -458,15 +490,20 @@
   :else
   (let [opts (cli/parse-opts *command-line-args* {:spec (update cli-spec :input dissoc :require)})]
     (cond
-      (not (:input opts))
-      (do (println "Error: --input is required")
+      ;; Explicit input given
+      (some? (:input opts))
+      (if (and (not= "-" (:input opts)) (not (fs/exists? (:input opts))))
+        (do (binding [*out* *err*] (println (str "Error: file not found: " (:input opts))))
+            (System/exit 2))
+        (optimize! opts))
+
+      ;; No -i flag but stdin has data
+      (stdin-ready?)
+      (optimize! (assoc opts :input "-"))
+
+      ;; No input at all
+      :else
+      (do (binding [*out* *err*] (println "Error: --input is required"))
           (println)
           (print-help)
-          (System/exit 1))
-
-      (not (fs/exists? (:input opts)))
-      (do (println (str "Error: file not found: " (:input opts)))
-          (System/exit 2))
-
-      :else
-      (optimize! opts))))
+          (System/exit 1)))))
