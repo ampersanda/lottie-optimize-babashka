@@ -44,9 +44,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install babashka
+        run: |
+          curl -sLO https://raw.githubusercontent.com/babashka/babashka/master/install
+          chmod +x install
+          sudo ./install
+
       - name: Prepare binary
         run: |
-          cp optimize-lottie.bb optimize-lottie
+          bb uberscript optimize-lottie optimize-lottie.bb
+          sed -i '1i#!/usr/bin/env bb' optimize-lottie
           chmod +x optimize-lottie
 
       - name: Create release
