@@ -33,7 +33,7 @@ download() {
 }
 
 get_latest_version() {
-  fetch "${API_URL}" | grep '"tag_name"' | sed -E 's/.*"tag_name":\s*"([^"]+)".*/\1/'
+  fetch "${API_URL}" | grep '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/'
 }
 
 get_installed_version() {
