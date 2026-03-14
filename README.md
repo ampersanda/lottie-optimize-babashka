@@ -73,11 +73,39 @@ bb optimize-lottie.bb -i animation.json --fps 30
 | `-f, --fps` | Target framerate | keep original |
 | `-l, --lossless` | Lossless WebP | false |
 
+## Examples
+
+Full-screen looping confetti animation examples located in `example/`. All examples symlink to `animations/confetti.json` so optimized files are reflected immediately.
+
+### iOS
+
+Uses SwiftUI + [lottie-ios](https://github.com/airbnb/lottie-ios) (SPM).
+
+```bash
+cd example/ios/LottieExample
+open LottieExample.xcodeproj
+```
+
+Xcode resolves the Lottie SPM dependency automatically. Select a simulator or device and run.
+
+### Android
+
+Uses Jetpack Compose + [lottie-compose](https://github.com/airbnb/lottie-android).
+
+```bash
+cd example/android
+./gradlew installDebug
+adb shell am start -n com.example.lottieexample/.MainActivity
+```
+
+Or open the `example/android` folder in Android Studio.
+
 ## How it works
 
 1. **Image compression** - Downscales embedded PNG images to fit the animation canvas, converts to WebP (or keeps PNG if smaller), picks the smallest result
-2. **Float truncation** - Reduces excessive decimal places in keyframe data
-3. **Metadata removal** - Strips After Effects editor-only properties (`mn`)
-4. **JSON minification** - Removes whitespace
+2. **Layer transform adjustment** - Updates asset dimensions to match resized pixels, then compensates image layers by scaling anchor points and scale transforms so rendering stays correct on both iOS and Android
+3. **Float truncation** - Reduces excessive decimal places in keyframe data
+4. **Metadata removal** - Strips After Effects editor-only properties (`mn`)
+5. **JSON minification** - Removes whitespace
 
 Typical results: ~80-94% file size reduction depending on quality settings.
